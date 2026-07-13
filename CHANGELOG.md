@@ -1,4 +1,7 @@
 #### Changelog v1.0.1 - 2026/07/13
+- 移除和sing-box相关的geoip
+
+#### Changelog v1.0.1 - 2026/07/13
 - Fixes and improvements
 
 #### Changelog v1.0.0 - 2026/04/10
