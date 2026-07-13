@@ -437,12 +437,6 @@ upgeox() {
       geosite_file="${box_dir}/mihomo/GeoSite.dat"
       geosite_url="https://github.com/MetaCubeX/meta-rules-dat/raw/release/geosite.dat"
       ;;
-    sing-box)
-      geoip_file="${box_dir}/sing-box/geoip.db"
-      geoip_url="https://github.com/MetaCubeX/meta-rules-dat/raw/release/geoip-lite.db"
-      geosite_file="${box_dir}/sing-box/geosite.db"
-      geosite_url="https://github.com/MetaCubeX/meta-rules-dat/raw/release/geosite.db"
-      ;;
     *)
       geoip_file="${box_dir}/${bin_name}/geoip.dat"
       geoip_url="https://github.com/MetaCubeX/meta-rules-dat/raw/release/geoip-lite.dat"
@@ -465,7 +459,7 @@ upgeox() {
 
 upgeox_all() {
   local original_bin_name=$bin_name
-  for core in mihomo sing-box xray v2fly; do
+  for core in mihomo xray v2fly; do
       bin_name=$core
       upgeox
   done
