@@ -21,8 +21,9 @@ wait_for_data_ready() {
 
 refresh_box() {
   if [ -f "/data/adb/box/run/box.pid" ]; then
-    "${scripts_dir}/box.service" stop > "/dev/null" 2>&1
-    "${scripts_dir}/box.iptables" disable > "/dev/null" 2>&1
+    "${scripts_dir}/box.service" stop > "/dev/null" 2>&1 &
+    "${scripts_dir}/box.iptables" disable > "/dev/null" 2>&1 &
+    wait
   fi
 }
 
@@ -32,7 +33,7 @@ start_service() {
   fi
   
   if [ "$boot_auto_start" = "false" ]; then
-    echo "开机自启已禁用，跳过启动核心服务。"
+    log Info "开机自启已禁用，跳过启动核心服务。"
     return 0
   fi
   
@@ -79,7 +80,7 @@ start_inotifyd() {
   net_inotifyd
 }
 
-mkdir -p /data/adb/box/run/ /data/adb/box/run/state/ /data/adb/box/run/locks/ >/dev/null 2>&1 || true
+mkdir -p /data/adb/box/run/ /data/adb/box/run/state/ >/dev/null 2>&1 || true
 if [ -f "/data/adb/box/manual" ]; then
   if [ -f "/data/adb/box/run/box.pid" ]; then
       rm /data/adb/box/run/box.pid
@@ -96,6 +97,3 @@ if [ -f "$file_settings" ] && [ -r "$file_settings" ] && [ -s "$file_settings" ]
 fi
 
 start_inotifyd
-
-# 开机60秒后执行一次 Google防火墙规则 清理
-(sleep 60 && /data/adb/box/scripts/box.tool gfw) &

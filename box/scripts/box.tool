@@ -35,8 +35,7 @@ mask_url() {
 
 # 启动提示
 divider() {
-  local line="----------------------------------------"
-  [ -n "$box_log" ] && echo "$line" >> "$box_log"
+  [ -n "$box_log" ] && log Info "----------------------------------------" >/dev/null
 }
 trap divider EXIT
 log Info "执行命令: $0 $@"
@@ -68,8 +67,8 @@ upfile() {
     log_url="$(mask_url "${update_url}")"
   fi
   log Info "开始下载: ${log_url}"
-  # log Debug "保存到: ${file}"
-  log Info "使用 User-Agent: ${current_ua}"
+  log Debug "保存到: ${file}"
+  log Debug "使用 User-Agent: ${current_ua}"
 
   if which curl >/dev/null; then
     http_code=$(curl -L -s --insecure --http1.1 --compressed --user-agent "${current_ua}" -o "${file}" -w "%{http_code}" "${update_url}")
@@ -106,17 +105,83 @@ upfile() {
 }
 
 # CN IPv4/IPv6 列表更新
+is_box_running() {
+  [ -f "${box_pid}" ] && kill -0 "$(<"${box_pid}" 2>/dev/null)" 2>/dev/null
+}
+
+reload_cnip_set() {
+  local set_name="$1"
+  local family="$2"
+  local source_file="$3"
+  local entries=0
+
+  if [ ! -s "${source_file}" ]; then
+    log Error "${set_name} 重写入失败: 文件不存在或为空"
+    return 1
+  fi
+
+  if ! command -v ipset >/dev/null 2>&1; then
+    log Warning "ipset 不可用，跳过 ${set_name} 重写入"
+    return 1
+  fi
+
+  entries="$(busybox awk '!/^[[:space:]]*#/ && NF > 0 {count++} END {print count + 0}' "${source_file}" 2>/dev/null)"
+  log Info "正在重写入 ${set_name}，条目=${entries}"
+
+  if {
+    echo "create ${set_name} hash:net family ${family} hashsize 8192 maxelem 65536 -exist"
+    echo "flush ${set_name}"
+    busybox awk -v set="${set_name}" '!/^[[:space:]]*#/ && NF > 0 {printf "add %s %s\n", set, $0}' "${source_file}"
+  } | ipset restore -exist 2>/dev/null; then
+    log Info "${set_name} 重写入完成"
+    return 0
+  fi
+
+  log Error "${set_name} 重写入失败"
+  return 1
+}
+
+reload_cnip_sets_after_update() {
+  local updated_v4="$1"
+  local updated_v6="$2"
+  local ok="true"
+
+  [ "${bypass_cn_ip}" = "true" ] || return 0
+  is_box_running || return 0
+
+  if [ "${updated_v4}" = "true" ] || [ "${updated_v6}" = "true" ]; then
+    log Info "服务运行中且已启用 CNIP，正在重写入 ipset"
+  fi
+
+  if [ "${updated_v4}" = "true" ]; then
+    reload_cnip_set cnip inet "${cn_ip_file}" || ok="false"
+  fi
+
+  if [ "${updated_v6}" = "true" ]; then
+    reload_cnip_set cnip6 inet6 "${cn_ipv6_file}" || ok="false"
+  fi
+
+  [ "${ok}" = "true" ]
+}
+
 upcnip() {
-  local did_any=false
+  local attempted=0
+  local success=0
+  local updated_v4="false"
+  local updated_v6="false"
+
   # IPv4
   if [ "${bypass_cn_ip}" = "true" ] && [ "${bypass_cn_ip_v4}" = "true" ]; then
     if [ -z "${cn_ip_url}" ] || [ -z "${cn_ip_file}" ]; then
       log Warning "cn_ip_url 或 cn_ip_file 未配置，跳过 IPv4"
     else
+      attempted=$((attempted + 1))
+      busybox mkdir -p "$(dirname "${cn_ip_file}")" >/dev/null 2>&1 || true
       log Info "下载 CN IPv4 列表 → ${cn_ip_file}"
       if upfile "${cn_ip_file}" "${cn_ip_url}"; then
         log Info "CN IPv4 列表更新完成"
-        did_any=true
+        success=$((success + 1))
+        updated_v4="true"
       else
         log Error "CN IPv4 列表更新失败"
       fi
@@ -130,10 +195,13 @@ upcnip() {
     if [ -z "${cn_ipv6_url}" ] || [ -z "${cn_ipv6_file}" ]; then
       log Warning "cn_ipv6_url 或 cn_ipv6_file 未配置，跳过 IPv6"
     else
+      attempted=$((attempted + 1))
+      busybox mkdir -p "$(dirname "${cn_ipv6_file}")" >/dev/null 2>&1 || true
       log Info "下载 CN IPv6 列表 → ${cn_ipv6_file}"
       if upfile "${cn_ipv6_file}" "${cn_ipv6_url}"; then
         log Info "CN IPv6 列表更新完成"
-        did_any=true
+        success=$((success + 1))
+        updated_v6="true"
       else
         log Error "CN IPv6 列表更新失败"
       fi
@@ -142,7 +210,23 @@ upcnip() {
     log Debug "未启用 IPv6 CN 分流或未开启 IPv6，跳过下载"
   fi
 
-  $did_any && return 0 || return 1
+  if [ "${attempted}" -eq 0 ]; then
+    log Info "未启用 CNIP 更新项，已跳过"
+    return 0
+  fi
+
+  if [ "${success}" -ne "${attempted}" ]; then
+    log Error "CNIP 列表更新异常（成功 ${success}/${attempted}）"
+    return 1
+  fi
+
+  if ! reload_cnip_sets_after_update "${updated_v4}" "${updated_v6}"; then
+    log Error "CNIP ipset 重写入失败"
+    return 1
+  fi
+
+  log Info "CNIP 列表更新完成（成功 ${success}/${attempted}）"
+  return 0
 }
 
 # 重启核心进程
@@ -346,32 +430,28 @@ upyq() {
 upgeox() {
   geodata_mode=$(busybox awk '!/^ *#/ && /geodata-mode:*./{print $2}' "${mihomo_config}")
   [ -z "${geodata_mode}" ] && geodata_mode=false
-  
   case "${bin_name}" in
     mihomo)
-      # 根据提取到的 geodata_mode 动态分配文件名和 URL
-      if [ "${geodata_mode}" = "true" ]; then
-        geoip_file="${box_dir}/mihomo/geoip.dat"
-        geoip_url="https://github.com/MetaCubeX/meta-rules-dat/raw/release/geoip-lite.dat"
-      else
-        geoip_file="${box_dir}/mihomo/GeoLite2-ASN.mmdb"
-        geoip_url="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb"
-      fi
-      # geosite_file="${box_dir}/mihomo/GeoSite.dat"
-      # geosite_url="https://github.com/MetaCubeX/meta-rules-dat/raw/release/geosite.dat"
+      geoip_file="${box_dir}/mihomo/Country.mmdb"
+      geoip_url="https://github.com/MetaCubeX/meta-rules-dat/raw/release/country-lite.mmdb"
+      geosite_file="${box_dir}/mihomo/GeoSite.dat"
+      geosite_url="https://github.com/MetaCubeX/meta-rules-dat/raw/release/geosite.dat"
+      ;;
+    sing-box)
+      geoip_file="${box_dir}/sing-box/geoip.db"
+      geoip_url="https://github.com/MetaCubeX/meta-rules-dat/raw/release/geoip-lite.db"
+      geosite_file="${box_dir}/sing-box/geosite.db"
+      geosite_url="https://github.com/MetaCubeX/meta-rules-dat/raw/release/geosite.db"
       ;;
     *)
-      # 兼容 Xray, V2Fly 等其他需要标准 .dat 格式的内核
       geoip_file="${box_dir}/${bin_name}/geoip.dat"
       geoip_url="https://github.com/MetaCubeX/meta-rules-dat/raw/release/geoip-lite.dat"
       geosite_file="${box_dir}/${bin_name}/geosite.dat"
       geosite_url="https://github.com/MetaCubeX/meta-rules-dat/raw/release/geosite.dat"
       ;;
   esac
-
   if [ "${update_geo}" = "true" ] && { log Info "每日更新 GeoX" && log Debug "正在下载 ${geoip_url}"; } && upfile "${geoip_file}" "${geoip_url}" && { log Debug "正在下载 ${geosite_url}" && upfile "${geosite_file}" "${geosite_url}"; }; then
 
-    # 清理备份文件
     find "${box_dir}/${bin_name}" -maxdepth 1 -type f -name "*.db.bak" -delete
     find "${box_dir}/${bin_name}" -maxdepth 1 -type f -name "*.dat.bak" -delete
     find "${box_dir}/${bin_name}" -maxdepth 1 -type f -name "*.mmdb.bak" -delete
@@ -379,24 +459,22 @@ upgeox() {
     log Debug "更新 GeoX 于 $(date "+%F %R")"
     return 0
   else
-    return 1
+   return 1
   fi
 }
 
 upgeox_all() {
   local original_bin_name=$bin_name
-  # 移除了 sing-box，仅保留需要这些文件的内核
-  for core in mihomo xray v2fly; do
+  for core in mihomo sing-box xray v2fly; do
       bin_name=$core
       upgeox
   done
   bin_name=$original_bin_name
 }
 
-# 更新 mihomo 配置的 proxy-providers (多订阅动态适配)
+# 更新 mihomo 配置的 proxy-providers
 update_mihomo_providers() {
   yq="yq"
-  # 1. 环境检查
   if ! command -v yq &>/dev/null; then
     if [ ! -e "${box_dir}/bin/yq" ]; then
       log Debug "yq 文件未找到, 开始从 GitHub 下载"
@@ -409,64 +487,43 @@ update_mihomo_providers() {
     log Error "配置文件不存在: ${mihomo_config}"
     return 1
   fi
-
   cp "${mihomo_config}" "${mihomo_config}.bak" 2>/dev/null
-  
-  # 获取订阅总数
   local file_count=${#name_provide_mihomo_config[@]}
   if [ "$file_count" -eq 0 ]; then
     log Warning "没有配置的订阅文件"
     return 1
   fi
 
-  # log Debug "开始更新 proxy-providers 配置项 (共 ${file_count} 个订阅)..."
+  log Debug "开始更新 proxy-providers 配置项..."
   local config_dir="$(dirname "${mihomo_config}")"  
   
-  # 检测是否存在锚点 &p (用于 Providers 内部引用模板)
-  local has_anchor=false
-  local anchor_name=""
-  anchor_name=$(grep -A 10 "proxy-providers:" "${mihomo_config}" | grep "<<: \*" | head -n1 | sed 's/.*\*//;s/ //g')
-
-  if [ -n "$anchor_name" ]; then
-    has_anchor=true
-    log Debug "检测到配置锚点: *${anchor_name}"
-  fi
-  
   local temp_providers="${mihomo_config}.providers.tmp"
-  local temp_use_list="${mihomo_config}.use.tmp"
-  
-  # 1. 【初始化临时区块】
   echo "proxy-providers:" > "${temp_providers}"
-  # 这里的 use: 会作为内容插件注入到匹配到的每一个锚点下方
-  echo "  use:" > "${temp_use_list}"
   
-  # 2. 【核心循环】支持多订阅
   for i in $(seq 0 $((file_count - 1))); do
     local file_name="${name_provide_mihomo_config[$i]}"
     local provider_file="${mihomo_provide_path}/${file_name}"
-    local provider_name="${file_name%.yaml}" # 提取文件名作为 Key
+    local provider_name="${file_name%.yaml}"
     local provider_url="${subscription_url_mihomo[$i]}"
-    
+    local escaped_url
+
     if [ -z "${provider_url}" ]; then
-      log Warning "第 $((i+1)) 个订阅链接为空，跳过"
+      log Warning "订阅链接为空，跳过: ${provider_name}"
       continue
     fi
+    escaped_url="$(echo "${provider_url}" | busybox sed 's/\\/\\\\/g; s/\"/\\"/g')"
     
-    local escaped_url="$(echo "${provider_url}" | busybox sed 's/\\/\\\\/g; s/\"/\\"/g')"
-    local relative_path="./proxy-providers/${file_name}"
-
-    # 写入 provider 配置
-    if [ "$has_anchor" = true ]; then
-      cat >> "${temp_providers}" <<EOF
-  ${provider_name}:
-    <<: *${anchor_name}    
-    override:
-      additional-prefix: "[${provider_name}] "
-    path: ${relative_path}
-    url: "${escaped_url}"
-EOF
+    local relative_path
+    if command -v realpath >/dev/null 2>&1 && [ -e "${provider_file}" ]; then
+      relative_path="$(realpath --relative-to="${config_dir}" "${provider_file}")"
+      [ -z "${relative_path}" ] && relative_path="./$(basename "${mihomo_provide_path}")/${file_name}"
     else
-      cat >> "${temp_providers}" <<EOF
+      relative_path="./$(basename "${mihomo_provide_path}")/${file_name}"
+    fi
+
+    log Debug "添加 provider: ${provider_name} -> ${relative_path} (http)"
+    
+    cat >> "${temp_providers}" <<EOF
   ${provider_name}:
     type: http
     url: "${escaped_url}"
@@ -474,79 +531,57 @@ EOF
     interval: 86400
     health-check:
       enable: true
-      url: https://www.gstatic.com/generate_204
-      interval: 14400
-      timeout: 5000
-      lazy: true
-    exclude-filter: '(?i)官网|邀请|到期|流量|更新|验证|剩余|频道|长期|推广|分享|周期|我的|网址'
-    override:
-      additional-prefix: "[${provider_name}] "      
-    header:
-      User-Agent:
-        - "${subs_ua}"
-        - "${subs1_ua}"        
-
+      url: https://cp.cloudflare.com
+      interval: 300
+      timeout: 1000
+      tolerance: 100
 EOF
-    fi
-    
-    # 同步到 use 列表
-    echo "    - ${provider_name}" >> "${temp_use_list}"
   done
-
-  # 3. 【核心 AWK】避让机制的动态替换
+  
   local temp_output="${mihomo_config}.output.tmp"
-  awk -v new_p="${temp_providers}" -v new_u="${temp_use_list}" '
-    BEGIN { 
-      in_p=0; p_done=0; 
-      in_anchor=0; in_use_list=0 
+  
+  awk -v new_providers="${temp_providers}" '
+    BEGIN {
+      in_providers = 0
+      providers_done = 0
     }
-
-    # A. 替换顶级 proxy-providers 区块
-    /^proxy-providers:[[:space:]]*/ { 
-      in_p=1; 
-      if(!p_done){ while((getline l < new_p)>0) print l; close(new_p); p_done=1 }
-      next 
-    }
-
-    # B. 匹配锚点行 (如 All: &All)，但通过排除花括号 {} 避开规则集锚点
-    /^[A-Za-z0-9_-]+:[[:space:]]*&[A-Za-z0-9_-]+/ {
-      # 排除掉包含 behavior, format 或花括号的规则定义行
-      if ($0 ~ /\{/ || $0 ~ /behavior/ || $0 ~ /format/) {
-        in_anchor=0; print $0; next
+    /^proxy-providers:/ {
+      in_providers = 1
+      if (providers_done == 0) {
+        while ((getline line < new_providers) > 0) {
+          print line
+        }
+        close(new_providers)
+        providers_done = 1
       }
-      in_anchor=1; in_use_list=0;
-      print $0;
-      next;
+      next
     }
-
-    # C. 在锚点区块内寻找 use: 并注入新列表
-    in_anchor && /^[[:space:]]+use:[[:space:]]*/ {
-      while((getline l < new_u)>0) print l; 
-      close(new_u);
-      in_use_list=1; 
-      next;
+    in_providers == 1 && /^[a-zA-Z-]+:/ {
+      in_providers = 0
+      print
+      next
     }
-
-    # D. 状态截断：遇到任何顶格的 Key，说明当前区块结束
-    /^[A-Za-z0-9_-]+:/ && !/&/ && !/^proxy-providers:/ {
-      in_anchor=0; in_p=0; in_use_list=0;
-      print $0;
-      next;
+    in_providers == 1 {
+      next
     }
-    # E. 过滤逻辑
-    in_p { next }
-    in_use_list && /^[[:space:]]+-/ { next } 
-    in_use_list && !/^[[:space:]]+-/ { in_use_list=0; } 
-
-    # F. 默认输出
-    { if (!in_use_list) print $0 }
+    {
+      print
+    }
+    END {
+      if (providers_done == 0) {
+        while ((getline line < new_providers) > 0) {
+          print line
+        }
+        close(new_providers)
+      }
+    }
   ' "${mihomo_config}" > "${temp_output}"
   
-  # 4. 覆盖原文件
   mv "${temp_output}" "${mihomo_config}"
-  rm -f "${temp_providers}" "${temp_use_list}"
   
-  # log Debug "${file_count}个订阅已同步至配置。"
+  rm -f "${temp_providers}"
+  
+  log Debug "proxy-providers 配置构建完成"
   return 0
 }
 
@@ -596,11 +631,11 @@ upsubs() {
         local file_name="${name_provide_mihomo_config[$i]}"
         local provider_file="${mihomo_provide_path}/${file_name}"
         
-        log Debug "--> 正在处理订阅 #${i}: ${file_name}"
+        log Info "--> 正在处理订阅 #${i}: ${file_name}"
 
         if [ "${renew}" = "true" ] && [ "$i" -eq 0 ]; then
           log Info "检测到 renew=true, 仅使用第一个订阅链接更新"
-          if LOG_MASK_URL=mask upfile "${mihomo_config}" "${url}" "${subs_ua}"; then
+          if LOG_MASK_URL=mask upfile "${mihomo_config}" "${url}" "ClashMeta"; then
             log Info "${mihomo_config} 更新成功"
             if [ -f "${box_pid}" ]; then
               kill -0 "$(<"${box_pid}" 2>/dev/null)" && \
@@ -614,19 +649,19 @@ upsubs() {
           fi
         fi
         
-        if LOG_MASK_URL=mask upfile "${provider_file}" "${url}" "${subs_ua}"; then
-          log Info "文件大小: $(wc -c < "${provider_file}" 2>/dev/null || echo "未知") 字节"
-          log Info "文件路径: ${provider_file}"
+        if LOG_MASK_URL=mask upfile "${provider_file}" "${url}" "ClashMeta"; then
+          log Debug "文件大小: $(wc -c < "${provider_file}" 2>/dev/null || echo "未知") 字节"
+          log Debug "文件路径: ${provider_file}"
           
           local decoded_content
           decoded_content=$(base64 -d "${provider_file}" 2>/dev/null)
 
           if [ $? -eq 0 ] && echo "${decoded_content}" | grep -qE "vless://|vmess://|ss://|hysteria://|hysteria2://|anytls://|trojan://"; then
-            log Debug "检测到 Base64 编码订阅, 正在解码..."
+            log Info "检测到 Base64 编码订阅, 正在解码..."
             echo "${decoded_content}" > "${provider_file}"
             local proxy_count=$(echo "${decoded_content}" | grep -cE "vless://|vmess://|ss://|hysteria://|hysteria2://|anytls://|trojan://")
-            log Info "提取到 ${proxy_count} 个代理节点"
-            log Debug "订阅 #${i} (Base64解码/原始链接) 已保存"
+            log Debug "提取到 ${proxy_count} 个代理节点"
+            log Info "订阅 #${i} (Base64解码/原始链接) 已保存"
             success_count=$((success_count + 1))
           elif ${yq} 'has("proxies")' "${provider_file}" 2>/dev/null; then
             if [ "${custom_rules_subs}" = "true" ] && [ "$rules_extracted" = "false" ]; then
@@ -639,16 +674,16 @@ upsubs() {
               fi
             fi
 
-            # log Debug "标准订阅格式, 正在提取 proxies 并覆盖原文件..."
+            log Debug "标准订阅格式, 正在提取 proxies 并覆盖原文件..."
             local temp_proxies_file
             temp_proxies_file=$(mktemp)
             
             # 提取 proxies 数组并验证
-            # log Debug "尝试提取 proxies 字段..."     
+            log Debug "尝试提取 proxies 字段..."     
             if ${yq} '.proxies' "${provider_file}" > "${temp_proxies_file}" 2>/dev/null; then
               if [ -s "${temp_proxies_file}" ]; then
                 local proxy_count=$(${yq} 'length' "${temp_proxies_file}" 2>/dev/null || echo "0")
-                log Info "提取到 ${proxy_count} 个代理节点"
+                log Debug "提取到 ${proxy_count} 个代理节点"
                 ${yq} -i '{"proxies": .}' "${temp_proxies_file}"
                 mv "${temp_proxies_file}" "${provider_file}"
                 log Info "订阅 #${i} (标准格式) 已处理并保存"
@@ -666,8 +701,8 @@ upsubs() {
 
           elif ${yq} '.. | select(tag == "!!str")' "${provider_file}" 2>/dev/null | grep -qE "vless://|vmess://|ss://|hysteria://|hysteria2://|anytls://|trojan://"; then
             local proxy_count=$(${yq} '.. | select(tag == "!!str")' "${provider_file}" 2>/dev/null | grep -cE "vless://|vmess://|ss://|hysteria://|hysteria2://|anytls://|trojan://")
-            log Info "提取到 ${proxy_count} 个代理节点"
-            log Debug "订阅 #${i} (原始链接) 已保存"
+            log Debug "提取到 ${proxy_count} 个代理节点"
+            log Info "订阅 #${i} (原始链接) 已保存"
             success_count=$((success_count + 1))
           else
             log Error "订阅 #${i} (${file_name}) 格式无法识别或内容为空, 已删除"
@@ -684,14 +719,14 @@ upsubs() {
       
       if [ "${renew}" != "true" ] && [ "${success_count}" -gt 0 ]; then
         if [ "${auto_modify_config}" = "true" ]; then
-          log Debug "同步订阅至配置: ${name_mihomo_config} ..."
+          log Info "正在更新 ${name_mihomo_config} 的 proxy-providers 配置..."
           if update_mihomo_providers; then
-            log Info "订阅更新同步成功"
+            log Info "proxy-providers 配置更新成功"
           else
-            log Warning "proxy-providers 更新同步失败，请手动检查配置文件"
+            log Warning "proxy-providers 配置更新失败，请手动检查配置文件"
           fi
         else
-          log Info "auto_modify_config 未启用，跳过更新同步 proxy-providers 字段"
+          log Info "auto_modify_config 未启用，跳过更新 proxy-providers 配置"
         fi
       fi
       
@@ -745,9 +780,19 @@ upkernel() {
     return 1
   fi
 
+  local target_bin_name="${core_to_update}"
+  case "${core_to_update}" in
+    "mihomo_smart")
+      target_bin_name="mihomo"
+      ;;
+    "sing-box_ref1nd")
+      target_bin_name="sing-box"
+      ;;
+  esac
+
   mkdir -p "${bin_dir}/backup"
-  if [ -f "${bin_dir}/${core_to_update}" ]; then
-    cp "${bin_dir}/${core_to_update}" "${bin_dir}/backup/${core_to_update}.bak" >/dev/null 2>&1
+  if [ -f "${bin_dir}/${target_bin_name}" ]; then
+    cp "${bin_dir}/${target_bin_name}" "${bin_dir}/backup/${target_bin_name}.bak" >/dev/null 2>&1
   fi
   case $(uname -m) in
     "aarch64") 
@@ -789,6 +834,29 @@ upkernel() {
       
       log Debug "下载 ${download_link}"
       upfile "${box_dir}/${file_kernel}.gz" "${download_link}" && xkernel "$core_to_update" "" "" "" "$file_kernel"
+      ;;
+    "sing-box_ref1nd")
+      log Info "正在更新 sing-box reF1nd 核心"
+      local api_url="https://api.github.com/repos/reF1nd/sing-box-releases/releases"
+      local url_down="https://github.com/reF1nd/sing-box-releases/releases"
+
+      if [ "${singbox_stable}" = "disable" ]; then
+        log Debug "正在下载 ${core_to_update} 预发布版本"
+        latest_version=$($rev1 "${api_url}" | grep "tag_name" | busybox grep -oE "v[0-9].*" | head -1 | cut -d'"' -f1)
+      else
+        log Debug "正在下载 ${core_to_update} 最新稳定版本"
+        latest_version=$($rev1 "${api_url}/latest" | grep "tag_name" | busybox grep -oE "v[0-9].*" | head -1 | cut -d'"' -f1)
+      fi
+
+      if [ -z "$latest_version" ]; then
+        log Error "获取 sing-box reF1nd 最新版本失败"
+        return 1
+      fi
+
+      local file_kernel="${core_to_update}-${arch}"
+      local download_link="${url_down}/download/${latest_version}/sing-box-${latest_version#v}-${platform}-${arch}.tar.gz"
+      log Debug "下载 ${download_link}"
+      upfile "${box_dir}/${file_kernel}.tar.gz" "${download_link}" && xkernel "$core_to_update" "$platform" "$arch" "$latest_version" "$file_kernel"
       ;;
     "sing-box")
       api_url="https://api.github.com/repos/SagerNet/sing-box/releases"
@@ -912,6 +980,8 @@ xkernel() {
   local target_bin_name="$core_to_process"
   if [ "$core_to_process" = "mihomo_smart" ]; then
     target_bin_name="mihomo"
+  elif [ "$core_to_process" = "sing-box_ref1nd" ]; then
+    target_bin_name="sing-box"
   fi
   
   bin_name=$core_to_process
@@ -931,17 +1001,17 @@ xkernel() {
         return 1
       fi
       ;;
-    "sing-box")
+    "sing-box"|"sing-box_ref1nd")
       tar_command="tar"
       if ! command -v tar >/dev/null; then
         tar_command="busybox tar"
       fi
       log Info "正在解压 Sing-Box 核心..."
       if ${tar_command} -xf "${box_dir}/${file_kernel}.tar.gz" -C "${bin_dir}" >/dev/null; then
-        mv "${bin_dir}/sing-box-${latest_version#v}-${platform}-${arch}/sing-box" "${bin_dir}/${core_to_process}"
+        mv "${bin_dir}/sing-box-${latest_version#v}-${platform}-${arch}/sing-box" "${bin_dir}/${target_bin_name}"
         if [ -f "${box_pid}" ]; then
           rm -rf /data/adb/box/sing-box/cache.db
-          restart_box "$core_to_process"
+          restart_box "$target_bin_name"
         else
           log Debug "${core_to_process} 无需重启."
         fi
@@ -1258,91 +1328,6 @@ cgroup_memcg() {
   fi
 }
 
-cgroup_cpuset() {
-  local pid_file="${1}"
-  local cores="${2}"
-
-  if [ -z "${pid_file}" ] || [ ! -f "${pid_file}" ]; then
-    log Warning "PID 文件丢失或无效: ${pid_file}"
-    return 1
-  fi
-
-  local PID
-  PID=$(<"${pid_file}" 2>/dev/null)
-  if [ -z "$PID" ] || ! kill -0 "$PID" >/dev/null; then
-    log Warning "来自 ${pid_file} 的 PID $PID 无效或未运行"
-    return 1
-  fi
-
-  if [ -z "${cores}" ]; then
-    local total_core
-    total_core=$(nproc --all 2>/dev/null)
-    if [ -z "$total_core" ] || [ "$total_core" -le 0 ]; then
-      log Warning "检测 CPU 核心失败"
-      return 1
-    fi
-    cores="0-$((total_core - 1))"
-  fi
-
-  if [ -z "${cpuset_path}" ]; then
-    cpuset_path=$(mount | grep cgroup | busybox awk '/cpuset/{print $3}' | head -1)
-    if [ -z "${cpuset_path}" ] || [ ! -d "${cpuset_path}" ]; then
-      log Warning "cpuset_path 未找到"
-      return 1
-    fi
-  fi
-
-  local cpuset_target="${cpuset_path}/box"
-  
-  if [ ! -d "${cpuset_target}" ]; then
-    mkdir -p "${cpuset_target}" 2>/dev/null
-    if [ ! -d "${cpuset_target}" ]; then
-      log Warning "无法创建 box cpuset 目录: ${cpuset_target}"
-      cpuset_target="${cpuset_path}/foreground"
-      if [ ! -d "${cpuset_target}" ]; then
-        cpuset_target="${cpuset_path}/top-app"
-      fi
-      if [ ! -d "${cpuset_target}" ]; then
-        cpuset_target="${cpuset_path}/apps"
-        if [ ! -d "${cpuset_target}" ]; then
-          log Warning "cpuset 目标未找到，无法设置 CPU 核心"
-          return 1
-        fi
-      fi
-      log Info "回退使用现有 cpuset 目录: ${cpuset_target}"
-    else
-      log Info "成功创建专用 box cpuset 目录: ${cpuset_target}"
-      if [ -f "${cpuset_path}/cpus" ]; then
-        cat "${cpuset_path}/cpus" > "${cpuset_target}/cpus" 2>/dev/null
-      fi
-      if [ -f "${cpuset_path}/mems" ]; then
-        cat "${cpuset_path}/mems" > "${cpuset_target}/mems" 2>/dev/null
-      fi
-    fi
-  fi
-
-  echo "${cores}" > "${cpuset_target}/cpus" 2>/dev/null
-  if [ $? -ne 0 ]; then
-    log Warning "无法设置 CPU 核心到 ${cpuset_target}/cpus"
-    return 1
-  fi
-  
-  echo "0" > "${cpuset_target}/mems" 2>/dev/null
-  if [ $? -ne 0 ]; then
-    log Warning "无法设置内存节点到 ${cpuset_target}/mems"
-    return 1
-  fi
-
-  echo "${PID}" > "${cpuset_target}/cgroup.procs" 2>/dev/null
-  if [ $? -eq 0 ]; then
-    log Info "已分配 PID $PID 到 ${cpuset_target}，CPU 核心 [$cores]"
-    return 0
-  else
-    log Warning "无法将 PID $PID 分配到 ${cpuset_target}"
-    return 1
-  fi
-}
-
 webroot() {
   ip_port=$(if [ "${bin_name}" = "mihomo" ]; then busybox awk '/external-controller:/ {print $2}' "${mihomo_config}"; else busybox awk -F'[:,]' '/"external_controller"/ {print $2":"$3}' "${sing_config}" | sed 's/^[ \t]*//;s/"//g'; fi;)
   secret=$(if [ "${bin_name}" = "mihomo" ]; then busybox awk '/^secret:/ {print $2}' "${mihomo_config}" | sed 's/"//g'; else busybox awk -F'"' '/"secret"/ {print $4}' "${sing_config}" | head -n 1; fi;)
@@ -1413,71 +1398,15 @@ bond1() {
   log Debug "rmnet_data* MTU: 9000"
 }
 
-# ColorOS Google 防火墙规则清理
-gfw() {
-  _remove_reject_rules() {
-    local table=$1 chain=$2 proto=$3 cmd
-    case "$proto" in
-      ipv4) cmd="iptables" ;;
-      ipv6) cmd="ip6tables" ;;
-      *) return 0 ;;
-    esac
-    command -v "$cmd" > /dev/null 2>&1 || return 0
-    $cmd -t "$table" -nvL "$chain" > /dev/null 2>&1 || return 0
-    local nums
-    nums=$($cmd -t "$table" --line-numbers -nvL "$chain" 2>/dev/null \
-      | awk '/REJECT/{print $1}' | sort -rn)
-    [ -z "$nums" ] && return 0
-    local count=0
-    for n in $nums; do
-      [ "$n" -gt 0 ] && $cmd -t "$table" -D "$chain" "$n" 2>/dev/null \
-        && count=$((count + 1))
-    done
-    return "$count"
-  }
-  local total=0
-  for _chain in fw_INPUT fw_OUTPUT fw_OUTPUT_oplus_dns; do
-    for _proto in ipv4 ipv6; do
-      _remove_reject_rules filter "$_chain" "$_proto"
-      total=$((total + $?))
-    done
-  done
-  [ "$total" -gt 0 ] \
-    && log Debug "Google 防火墙拦截规则已清理(${total}条)" \
-    || log Debug "Google 防火墙拦截规则无需清理"
-}
-
-# 关闭 USB 调试
-adb_disable() {
-  _try_disable_adb() {
-    [ "$(settings get global adb_enabled 2>/dev/null)" = "0" ] && return 0
-    settings put global adb_enabled 0
-    sleep 0.5
-    [ "$(settings get global adb_enabled 2>/dev/null)" = "0" ] && return 0 || return 1
-  }
-  _try_disable_adb \
-    && log Debug "USB 调试已处于关闭状态" \
-    || {
-      settings put global adb_enabled 0
-      [ "$(settings get global adb_enabled 2>/dev/null)" = "0" ] \
-        && log Debug "USB 调试经二次校验关闭成功" \
-        || log Error "USB 调试关闭失败"
-    }
-}
-
 case "$1" in
   check)
     check
     ;;
-  memcg|cpuset|blkio)
+  memcg|blkio)
     case "$1" in
       memcg)
         memcg_path=""
         cgroup_memcg "${box_pid}" ${memcg_limit}
-        ;;
-      cpuset)
-        cpuset_path=""
-        cgroup_cpuset "${box_pid}" ${allow_cpu}
         ;;
       blkio)
         blkio_path=""
@@ -1488,12 +1417,6 @@ case "$1" in
   bond0|bond1)
     $1
     ;;
-  gfw)
-    gfw
-    ;;    
-  adb_disable)
-    adb_disable
-    ;;                    
   geosub)
     upsubs || exit 1
     upgeox
@@ -1548,7 +1471,7 @@ case "$1" in
     ;;
   *)
     log Error "$0 $1 未找到"
-    log Info "用法: $0 {check|memcg|cpuset|blkio|geosub|geox|subs|upkernel [name]|upkernels [name...]|upgeox_all|upxui|upyq|upcurl|upcnip|reload|webroot|bond0|bond1|all}"
+    log Info "用法: $0 {check|memcg|blkio|geosub|geox|subs|upkernel [name]|upkernels [name...]|upgeox_all|upxui|upyq|upcurl|upcnip|reload|webroot|bond0|bond1|all}"
     log Info "upkernel 支持的核心: sing-box, mihomo, mihomo_smart, xray, v2fly, hysteria"
     ;;
 esac
