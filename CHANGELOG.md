@@ -1,3 +1,6 @@
+#### Changelog v1.0.1 - 2026/07/13
+- Fixes and improvements
+
 #### Changelog v1.0.0 - 2026/04/10
 - 优化: sing-box/mihomo配置兼容适配
 - 调整: 输出和日志显示调整
