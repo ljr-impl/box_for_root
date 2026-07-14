@@ -34,7 +34,7 @@ jobs:
       - name: Generate Asset
         run: |
           sudo mkdir -p /box_for_root
-          sudo cp -r --parents $(find ./ -type f ! -path './.git/*' ! -name 'CHANGELOG.md' ! -name 'LICENSE' ! -name 'update.json' ! -name 'build.sh' ! -path './.github/*' ! -path ')  /box_for_root/
+          sudo cp -r --parents $(find ./ -type f ! -path './.git/*' ! -name 'CHANGELOG.md' ! -name 'LICENSE' ! -name 'update.json' ! -name 'build.sh' ! -path './.github/*')  /box_for_root/
 
       - name: Upload Debug Asset => (box_for_root_${{ steps.get_version.outputs.version }})
         uses: actions/upload-artifact@v7
