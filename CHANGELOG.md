@@ -1,3 +1,6 @@
+#### Changelog v1.0.2 - 2026/07/14
+- 新增：模块内支持安装关联 APK
+
 #### Changelog v1.0.1 - 2026/07/13
 - 移除和sing-box相关的geoip
 
