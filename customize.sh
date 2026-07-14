@@ -352,4 +352,40 @@ if [ "$backup_box" = "true" ] && [ -n "$temp_dir" ] && [ -d "$temp_dir" ]; then
   fi
 fi
 
-ui_print "- 安装完成，请重启设备。"
+# ====== 音量键选择安装模块内应用 ======
+# 检查当前模块目录下是否存在 box 开头的 apk 文件
+has_apk="false"
+for apk_file in "$MODPATH"/box*.apk; do
+  [ -f "$apk_file" ] && has_apk="true" && break
+done
+
+if [ "$has_apk" = "true" ]; then
+  if handle_choice "是否需要安装模块内的配套应用 (APK)？" "安装应用" "跳过安装" "15"; then
+    ui_print "- 开始安装模块内 apk ..."
+    
+    # 循环安装所有匹配的 apk 文件
+    for apk in "$MODPATH"/box*.apk; do
+      [ -f "$apk" ] || continue
+      apk_name=$(basename "$apk")
+      ui_print "  -> 正在安装: $apk_name"
+      
+      # 使用系统的 pm 命令进行后台静默安装
+      pm install -r "$apk" >/dev/null 2>&1
+      if [ $? -eq 0 ]; then
+        ui_print "     [✓] apk 安装成功"
+      else
+        ui_print "     [✗] apk 安装失败"
+      fi
+    done
+    
+    # 安装完成后，清理掉模块目录下的 apk，避免占用系统分区(/data/adb/modules)空间
+    rm -f "$MODPATH"/box*.apk
+  else
+    ui_print "- 已跳过应用安装。"
+  fi
+else
+  ui_print "- [!] 未在模块内找到任何 box*.apk 文件。"
+fi
+# ======================================
+
+ui_print "- 模块安装完成，请重启设备。"
