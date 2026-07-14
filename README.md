@@ -14,7 +14,7 @@
 模块内APK：
 - 开发者及获取渠道:
 - [boxproxy](https://github.com/boxproxy/box)
-- [TG频道:](https://telegram.me/zero_o0)
+- [TG频道](https://telegram.me/zero_o0)
   
 ## 使用方法
 
