@@ -11,6 +11,10 @@
 - [boxproxy](https://github.com/boxproxy/box)
 - [CHIZI-0618](https://github.com/CHIZI-0618/box4magisk)
 
+模块内APK：
+- [来源:[boxproxy](https://github.com/boxproxy/box)
+- [TG频道:](https://telegram.me/zero_o0)
+  
 ## 使用方法
 
 参考上游仓库文档，本 fork 不提供额外支持。
