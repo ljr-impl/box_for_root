@@ -1251,7 +1251,7 @@ set_description() {
 
   case "$status" in
     running)
-      desc="✅ Box服务运行中 | 内核: ${bin_name} | 代理模式: ${proxy_mode} | 网络: ${network_mode} | IPv6状态: ${ipv6_info} | DNS模式: ${dns_mode}${wifi_match_str}"
+      desc="✅ Box服务运行中 | 内核: ${bin_name} | 代理模式: ${proxy_mode} | 网络: ${network_mode} | DNS模式: ${dns_mode}${wifi_match_str} | IPv6状态: ${ipv6_info}"
       ;;
     stopped)
       desc="❌ Box服务已停止 | 上次运行内核: ${bin_name} | 代理已禁用"
