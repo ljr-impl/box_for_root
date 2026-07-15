@@ -161,9 +161,9 @@ box_run_crontab() {
   echo "# root 的定时任务" > "${box_run_state}/root"
 
   if [ "${run_crontab}" = "true" ]; then
-    # log Debug "crond 已启用"
+    # log Info "crond 已启用"
     if [ "$update_subscription" = "true" ] || [ "$update_geo" = "true" ]; then
-      log Debug "crond 已启用: ${interva_update}"
+      log Info "crond 已启用: ${interva_update}"
       echo "${interva_update} ${scripts_dir}/box.tool geosub" >> "${box_run_state}/root"
       log Info "${bin_name} geox 更新: ${update_geo}."
       if [ "${bin_name}" = "mihomo" ]; then
