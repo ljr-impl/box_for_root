@@ -161,9 +161,9 @@ box_run_crontab() {
   echo "# root 的定时任务" > "${box_run_state}/root"
 
   if [ "${run_crontab}" = "true" ]; then
-    log Debug "crond 已启用"
+    # log Debug "crond 已启用"
     if [ "$update_subscription" = "true" ] || [ "$update_geo" = "true" ]; then
-      log Debug "定时任务间隔: ${interva_update}."
+      log Debug "crond 已启用: ${interva_update}"
       echo "${interva_update} ${scripts_dir}/box.tool geosub" >> "${box_run_state}/root"
       log Info "${bin_name} geox 更新: ${update_geo}."
       if [ "${bin_name}" = "mihomo" ]; then
@@ -230,7 +230,7 @@ box_permission() {
       box_ownership
       box_permission_stamp_save || true
     fi
-    log Info "使用内核 ${bin_path}。"
+    log Info "使用内核 ${bin_path}"
   else
     if  [[ "${box_user_group}" != @(root:net_admin|0:3005) ]]; then
       log Error "不支持的用户组 [ \"${box_user_group}\" ]"
@@ -246,6 +246,11 @@ box_permission() {
   fi
 }
 
+# 新增：版本比较
+version_ge() {
+  [ "$(printf '%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]
+}
+
 box_check_bin() {
   if [ ! -x "${bin_path}" ]; then
     log Error "${bin_path} 不可执行。"
@@ -254,24 +259,46 @@ box_check_bin() {
   fi
 
   local version_output
+
   case "${bin_name}" in
     mihomo)
       version_output=$("${bin_path}" -v 2>/dev/null) || {
         log Error "${bin_name} 版本信息获取失败。"
         set_description error "内核损坏"
         exit 1
-        }
+      }
       ;;
     *)
       version_output=$("${bin_path}" version 2>/dev/null) || {
         log Error "${bin_name} 版本信息获取失败。"
         set_description error "内核损坏"
         exit 1
-        }
+      }
       ;;
   esac
 
-  log Info "${version_output}"
+  # 完整版本号（保留 alpha/beta/rc 以及第三方后缀）
+  bin_version_full=$(
+    printf '%s\n' "${version_output}" |
+    head -n1 |
+    grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*' |
+    sed 's/^v//'
+  )
+
+  # 核心版本号（用于比较）
+  bin_version=$(
+    printf '%s\n' "${bin_version_full}" |
+    grep -oE '^[0-9]+\.[0-9]+\.[0-9]+'
+  )
+  
+  # 美化 Debug 输出
+  log_raw "------------------------------------------------------------------"
+  while IFS= read -r line || [ -n "${line}" ]; do
+    log_raw "  ${line}"
+  done <<EOF
+${version_output}
+EOF
+  log_raw "------------------------------------------------------------------"
 }
 
 tun_requires_manual_routing() {
@@ -730,13 +757,28 @@ prepare_singbox() {
 
   # 根据 network_mode 设置 auto_route
   if [[ "${network_mode}" == @(mixed|tun) ]]; then
+    local tun_address
+    local tun_dns_payload=""
+    tun_address='"172.18.0.1/30","fdfe:dcba:9876::1/126"'
+    tun_dns_address='"172.18.0.2","fdfe:dcba:9876::2"'    
+
+    # 根据版本号动态插入 dns_mode
+    if version_ge "${bin_version}" "1.14.0"; then
+        tun_dns_payload=$(cat <<EOF
+,
+"dns_mode": "hijack",
+"dns_address": [${tun_dns_address}]
+EOF
+)
+    fi
+  
     local tun_inbound_payload
     tun_inbound_payload=$(cat <<EOF
 {
   "type": "tun",
   "tag": "tun-in",
   "interface_name": "sing",
-  "address": ["172.18.0.1/30","fdfe:dcba:9876::1/126"],
+  "address": [${tun_address}]${tun_dns_payload},
   "mtu": 9000,
   "stack": "${tun_stack}",
   "auto_route": ${tun_auto_route},
@@ -1251,7 +1293,7 @@ set_description() {
 
   case "$status" in
     running)
-      desc="✅ Box服务运行中 | 内核: ${bin_name} | 代理模式: ${proxy_mode} | 网络: ${network_mode} | DNS模式: ${dns_mode}${wifi_match_str} | IPv6状态: ${ipv6_info}"
+      desc="✅ Box服务运行中 | 内核: ${bin_name} | 代理模式: ${proxy_mode} | 网络: ${network_mode} | IPv6状态: ${ipv6_info} | DNS模式: ${dns_mode}${wifi_match_str}"
       ;;
     stopped)
       desc="❌ Box服务已停止 | 上次运行内核: ${bin_name} | 代理已禁用"
@@ -1306,7 +1348,8 @@ start_box() {
   log Info "Timezone: ${startup_timezone} | Time: ${startup_datetime}"
   log Info "Network: ${startup_network}"
   log Info "Module: ${box_version} (${startup_abi})"
-  log Info "━━━━━━━━━━━━━━━━━━"
+  log_raw "------------------------------------------------------------------"
+  # log Info "━━━━━━━━━━━━━━━━━━"
 
   # 如果 bin_name 仍在运行则更新 iptables
   PIDS=("${bin_list[@]}")
