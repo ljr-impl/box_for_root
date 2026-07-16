@@ -291,13 +291,25 @@ box_check_bin() {
     grep -oE '^[0-9]+\.[0-9]+\.[0-9]+'
   )
   
+  # 将多行版本输出转换为单行（去除行首尾空格，用 "｜" 拼接）
+  local formatted_version
+  formatted_version=$(printf '%s\n' "${version_output}" | awk '
+    {
+      gsub(/^[ \t]+|[ \t]+$/, "")
+      if ($0 != "") {
+        if (out == "") {
+          out = $0
+        } else {
+          out = out "｜" $0
+        }
+      }
+    }
+    END { print out }
+  ')  
+  
   # 美化 Debug 输出
   log_raw "------------------------------------------------------------------"
-  while IFS= read -r line || [ -n "${line}" ]; do
-    log_raw "  ${line}"
-  done <<EOF
-${version_output}
-EOF
+  log_raw "  ${formatted_version}"
   log_raw "------------------------------------------------------------------"
 }
 
