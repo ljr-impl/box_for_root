@@ -10,6 +10,10 @@ TOOL_LOG="${box_run}/tool.log"
 busybox mkdir -p "$(dirname "$TOOL_LOG")"
 box_log="$TOOL_LOG"
 
+# 传入定义的 ua
+mihomo_ua="${mihomo_ua:-ClashMeta}"
+singbox_ua="${singbox_ua:-sing-box/1.14.0}"
+
 # 设置 GitHub API 访问配置
 setup_github_api() {
   rev1="busybox wget --no-check-certificate -qO-"
@@ -629,7 +633,7 @@ upsubs() {
 
         if [ "${renew}" = "true" ] && [ "$i" -eq 0 ]; then
           log Info "检测到 renew=true, 仅使用第一个订阅链接更新"
-          if LOG_MASK_URL=mask upfile "${mihomo_config}" "${url}" "ClashMeta"; then
+          if LOG_MASK_URL=mask upfile "${mihomo_config}" "${url}" "${mihomo_ua}"; then
             log Info "${mihomo_config} 更新成功"
             if [ -f "${box_pid}" ]; then
               kill -0 "$(<"${box_pid}" 2>/dev/null)" && \
@@ -643,7 +647,7 @@ upsubs() {
           fi
         fi
         
-        if LOG_MASK_URL=mask upfile "${provider_file}" "${url}" "ClashMeta"; then
+        if LOG_MASK_URL=mask upfile "${provider_file}" "${url}" "${mihomo_ua}"; then
           log Debug "文件大小: $(wc -c < "${provider_file}" 2>/dev/null || echo "未知") 字节"
           log Debug "文件路径: ${provider_file}"
           
@@ -737,7 +741,7 @@ upsubs() {
       if [ -n "${subscription_url_singbox}" ]; then
         log Info "${bin_name} 每日更新订阅 → $(date)"
         log Debug "正在下载 ${update_file_name}"
-        if upfile "${update_file_name}" "${subscription_url_singbox}" "sing-box"; then
+        if upfile "${update_file_name}" "${subscription_url_singbox}" "${singbox_ua}"; then
           log Info "${update_file_name} 已保存"
           log Info "更新订阅于 $(date +"%F %R")"
           if [ -f "${box_pid}" ]; then
