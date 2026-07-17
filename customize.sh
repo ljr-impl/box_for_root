@@ -377,12 +377,11 @@ if [ "$has_apk" = "true" ]; then
         ui_print "     [✗] apk 安装失败"
       fi
     done
-    
-    # 安装完成后，清理掉模块目录下的 apk，避免占用系统分区(/data/adb/modules)空间
-    rm -f "$MODPATH"/box*.apk
   else
     ui_print "- 已跳过应用安装。"
   fi
+  # 清理模块目录下的 apk，避免占用系统分区(/data/adb/modules)空间
+  rm -f "$MODPATH"/box*.apk
 else
   ui_print "- [!] 未在模块内找到任何 box*.apk 文件。"
 fi
