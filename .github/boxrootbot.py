@@ -39,11 +39,11 @@ def get_caption():
     if is_debug:
         # 调试版：
         version_display = f"{version}"
-        # tags = "#moudle    #root    #pre-release"
+        # tags = "预发布版"
     else:
         # 正式版：
         version_display = version
-        # tags = "#moudle    #root    #release"
+        tags = "正式版"
 
     # 构建最终消息（手动拼接，防止模板 format 报错）
     msg = (
@@ -51,9 +51,9 @@ def get_caption():
         f"**版本:** {version_display}\n"
         f"**日期:** {date}\n"
         f"{changelog}\n\n"
-        "[仓库地址](https://github.com/ljrgov/box_for_root) | "
-        "[发布详情](https://github.com/ljrgov/box_for_root/releases)\n\n"
-        # f"{tags}"
+        "[仓库地址](https://github.com/ljrgov/box_for_root)  |  "
+        "[发布详情](https://github.com/ljrgov/box_for_root/releases)  ｜  "
+        f"{tags}"
     ).strip()
 
     return msg[:1024]
