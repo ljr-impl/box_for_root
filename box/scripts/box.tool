@@ -75,7 +75,7 @@ upfile() {
   log Debug "使用 User-Agent: ${current_ua}"
 
   if which curl >/dev/null; then
-    http_code=$(curl -L -s --insecure --http1.1 --compressed --user-agent "${current_ua}" -o "${file}" -w "%{http_code}" "${update_url}")
+    http_code=$(curl -L -4 -s --insecure --http1.1 --compressed --user-agent "${current_ua}" -o "${file}" -w "%{http_code}" "${update_url}")
     curl_exit_code=$?
 
     if [ ${curl_exit_code} -ne 0 ]; then
