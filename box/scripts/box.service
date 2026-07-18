@@ -770,27 +770,33 @@ prepare_singbox() {
   # 根据 network_mode 设置 auto_route
   if [[ "${network_mode}" == @(mixed|tun) ]]; then
     local tun_address
-    local tun_dns_payload=""
     tun_address='"172.18.0.1/30","fdfe:dcba:9876::1/126"'
-    tun_dns_address='"172.18.0.2","fdfe:dcba:9876::2"'    
-
-    # 根据版本号动态插入 dns_mode
+  
+    # 提取 1.14.0+ 专属字段的 Payload
+    local v14_fields_payload=""
     if version_ge "${bin_version}" "1.14.0"; then
-        tun_dns_payload=$(cat <<EOF
+      v14_fields_payload=$(cat <<EOF
 ,
-"dns_mode": "hijack",
-"dns_address": [${tun_dns_address}]
+  "dns_mode": "hijack",
+  "dns_address": [
+    "172.18.0.2",
+    "fdfe:dcba:9876::2"
+  ],
+  "udp_timeout": "5m",
+  "udp_mapping": "endpoint_independent",
+  "udp_filtering": "endpoint_independent",
+  "udp_nat_max": 0
 EOF
 )
     fi
-  
+
     local tun_inbound_payload
     tun_inbound_payload=$(cat <<EOF
 {
   "type": "tun",
   "tag": "tun-in",
   "interface_name": "sing",
-  "address": [${tun_address}]${tun_dns_payload},
+  "address": [${tun_address}]${v14_fields_payload},
   "mtu": 9000,
   "stack": "${tun_stack}",
   "auto_route": ${tun_auto_route},
@@ -801,6 +807,7 @@ EOF
 }
 EOF
 )
+
     sing_ensure_inbound "${yq}" "tun" "${tun_inbound_payload}" "Tun"
 
     if tun_should_manage_core_config; then
@@ -811,7 +818,31 @@ EOF
       log Info "TUN 未启用大陆 IP 分流，保留 sing-box 现有 TUN 路由与协议栈配置。"
     fi
   else
-    sing_ensure_inbound "${yq}" "tproxy" '{"type": "tproxy", "tag": "tproxy-in", "listen": "::", "listen_port": '"${tproxy_port}"'}' "Tproxy"
+    # 提取 1.14.0+ 专属字段的 Payload (Tproxy)
+    local v14_tproxy_payload=""
+    if version_ge "${bin_version}" "1.14.0"; then
+      v14_tproxy_payload=$(cat <<EOF
+,
+  "udp_timeout": "5m",
+  "udp_mapping": "endpoint_independent",
+  "udp_filtering": "endpoint_independent",
+  "udp_nat_max": 0
+EOF
+)
+    fi
+
+    local tproxy_inbound_payload
+    tproxy_inbound_payload=$(cat <<EOF
+{
+  "type": "tproxy",
+  "tag": "tproxy-in",
+  "listen": "::",
+  "listen_port": ${tproxy_port}${v14_tproxy_payload}
+}
+EOF
+)
+
+    sing_ensure_inbound "${yq}" "tproxy" "${tproxy_inbound_payload}" "Tproxy"
     sing_delete_inbound "${yq}" "tun"
     sing_sync_inbound_port "${yq}" "tproxy" "${tproxy_port}"
   fi
