@@ -35,7 +35,8 @@ jobs:
           INPUT_TAG="${{ github.event.inputs.tag }}"
           VERSION="${INPUT_TAG//v/}"
           VERSION="v$VERSION"
-          DATE_NUM="${{ steps.get_version.outputs.date }}"
+          # v1.0.3 -> 103
+          DATE_NUM=$(echo "$VERSION" | tr -cd '0-9')   
           DATE_HUMAN=$(TZ='Asia/Shanghai' date +%Y/%m/%d)
           CHANGELOG="${{ github.event.inputs.changelog }}"
 
