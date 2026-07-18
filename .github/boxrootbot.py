@@ -39,7 +39,7 @@ def get_caption():
     if is_debug:
         # 调试版：
         version_display = f"{version}"
-        # tags = "预发布版"
+        tags = "预发布版"
     else:
         # 正式版：
         version_display = version
