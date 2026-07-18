@@ -23,8 +23,9 @@ jobs:
 
       - name: Update Module.prop
         run: |
-          sed -i "s/$(grep -oP 'version=\K[^ ]+' module.prop)/$(cat module.prop | grep 'version=' | awk -F '=' '{print $2}')($(git log --oneline -n 1 | awk '{print $1}'))/g" module.prop
-          sed -i "s/versionCode=.*/versionCode=$(TZ='Asia/Shanghai' date +%Y%m%d%H%M)/g" module.prop
+          ORIGIN_VER=$(cat module.prop | grep 'version=' | awk -F '=' '{print $2}')
+          sed -i "s/^versionCode=.*/versionCode=$(echo "$ORIGIN_VER" | tr -cd '0-9')/" module.prop
+          sed -i "s/^version=.*/version=${ORIGIN_VER}($(git log --oneline -n 1 | awk '{print $1}'))/" module.prop
 
       - name: Get Version
         id: get_version
@@ -66,9 +67,11 @@ jobs:
       - name: Run build
         if: steps.check_ci.outputs.should_upload == 'true'
         run: |
-          sed -i "s/$(grep -oP 'version=\K[^ ]+' module.prop)/$(cat module.prop | grep 'version=' | awk -F '=' '{print $2}')($(git log --oneline -n 1 | awk '{print $1}'))/g" module.prop
+          ORIGIN_VER=$(cat module.prop | grep 'version=' | awk -F '=' '{print $2}')
+          sed -i "s/^versionCode=.*/versionCode=$(echo "$ORIGIN_VER" | tr -cd '0-9')/" module.prop
+          sed -i "s/^version=.*/version=${ORIGIN_VER}($(git log --oneline -n 1 | awk '{print $1}'))/" module.prop
           zip -r -o -X -ll box_for_root-$(cat module.prop | grep 'version=' | awk -F '=' '{print $2}').zip ./ \
-            -x '.git/*' -x 'CHANGELOG.md' -x 'LICENSE' -x 'update.json' -x 'build.sh' -x '.github/*'
+  -x '.git/*' -x 'CHANGELOG.md' -x 'LICENSE' -x 'update.json' -x 'build.sh' -x '.github/*'
 
       - name: Upload to GitHub Pre-release
         if: steps.check_ci.outputs.should_upload == 'true'
