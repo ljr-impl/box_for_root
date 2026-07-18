@@ -1,4 +1,4 @@
-Name: debug
+name: debug
 
 on:
   workflow_dispatch:
@@ -23,12 +23,8 @@ jobs:
 
       - name: Update Module.prop
         run: |
-          ORIGIN_VER=$(grep 'version=' module.prop | cut -d'=' -f2)
-          DATE_NUM=$(echo "$ORIGIN_VER" | tr -cd '0-9')
-          COMMIT_ID=$(git rev-parse --short HEAD)
-          
-          sed -i "s/^versionCode=.*/versionCode=$DATE_NUM/" module.prop
-          sed -i "s/^version=.*/version=${ORIGIN_VER}(${COMMIT_ID})/" module.prop
+          sed -i "s/$(grep -oP 'version=\K[^ ]+' module.prop)/$(cat module.prop | grep 'version=' | awk -F '=' '{print $2}')($(git log --oneline -n 1 | awk '{print $1}'))/g" module.prop
+          sed -i "s/versionCode=.*/versionCode=$(TZ='Asia/Shanghai' date +%Y%m%d%H%M)/g" module.prop
 
       - name: Get Version
         id: get_version
@@ -70,15 +66,8 @@ jobs:
       - name: Run build
         if: steps.check_ci.outputs.should_upload == 'true'
         run: |
-          ORIGIN_VER=$(grep 'version=' module.prop | cut -d'=' -f2)
-          DATE_NUM=$(echo "$ORIGIN_VER" | tr -cd '0-9')
-          COMMIT_ID=$(git rev-parse --short HEAD)
-          NEW_VER="${ORIGIN_VER}(${COMMIT_ID})"
-          
-          sed -i "s/^versionCode=.*/versionCode=$DATE_NUM/" module.prop
-          sed -i "s/^version=.*/version=$NEW_VER/" module.prop
-          
-          zip -r -o -X -ll box_for_root-${NEW_VER}.zip ./ \
+          sed -i "s/$(grep -oP 'version=\K[^ ]+' module.prop)/$(cat module.prop | grep 'version=' | awk -F '=' '{print $2}')($(git log --oneline -n 1 | awk '{print $1}'))/g" module.prop
+          zip -r -o -X -ll box_for_root-$(cat module.prop | grep 'version=' | awk -F '=' '{print $2}').zip ./ \
             -x '.git/*' -x 'CHANGELOG.md' -x 'LICENSE' -x 'update.json' -x 'build.sh' -x '.github/*'
 
       - name: Upload to GitHub Pre-release
@@ -94,6 +83,7 @@ jobs:
             --notes "pre-release build from commit $(git log -1 --pretty=%h)"
 
       - name: Upload to Telegram (Debug Mode)
+        # 通过 [ci] 决定是否上传
         if: steps.check_ci.outputs.should_upload == 'true'
         env:
           CHAT_ID: ${{ secrets.CHAT_ID }}
@@ -102,17 +92,27 @@ jobs:
           API_HASH: ${{ secrets.API_HASH }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         run: |
+          # 从模块文件提取版本号
           export VERSION=$(grep 'version=' module.prop | awk -F '=' '{print $2}')
+          
+          # 设置版本类型
           export COMMIT="Pre-release"
+          
+          # 获取当前时间
           export DATE=$(TZ='Asia/Shanghai' date "+%Y-%m-%d %H:%M")
+          
+          # 获取最后一条 commit message 作为日志，并用双引号包裹防止换行导致崩溃
           export CHANGELOG="$(git log -1 --pretty=%B | head -n 1)"
           
+          # 查找生成的 zip 文件
           FILE=$(find . -name "*.zip" | head -n 1)
+          
           if [ -z "$FILE" ]; then
             echo "[-] Error: No zip file found!"
             exit 1
           fi
 
           echo "[+] Preparing to upload: $FILE (Version: $VERSION, Commit: $COMMIT)"
+          
           pip3 install --quiet telethon==1.31.1
           python3 .github/boxrootbot.py "$FILE"
