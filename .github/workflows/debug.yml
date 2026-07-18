@@ -23,19 +23,12 @@ jobs:
 
       - name: Update Module.prop
         run: |
-          # 1. 先把原始版本号存进变量（例如：v1.0.3）
-          ORIGIN_VER=$(cat module.prop | grep 'version=' | awk -F '=' '{print $2}')
-          
-          # 【核心修改】直接拿原始版本号提取出纯数字做 versionCode（v1.0.3 -> 103）
+          ORIGIN_VER=$(grep 'version=' module.prop | cut -d'=' -f2)
           DATE_NUM=$(echo "$ORIGIN_VER" | tr -cd '0-9')
+          COMMIT_ID=$(git rev-parse --short HEAD)
           
-          # 2. 生成带 commit 的调试版 version 字符串
-          COMMIT_ID=$(git log --oneline -n 1 | awk '{print $1}')
-          NEW_VER="${ORIGIN_VER}(${COMMIT_ID})"
-          
-          # 3. 写入 module.prop
-          sed -i "s/^version=.*/version=$NEW_VER/" module.prop
           sed -i "s/^versionCode=.*/versionCode=$DATE_NUM/" module.prop
+          sed -i "s/^version=.*/version=${ORIGIN_VER}(${COMMIT_ID})/" module.prop
 
       - name: Get Version
         id: get_version
@@ -77,16 +70,15 @@ jobs:
       - name: Run build
         if: steps.check_ci.outputs.should_upload == 'true'
         run: |
-          # 这里的逻辑保持和上面 build job 完全对齐，先取纯净版号拿数字，再拼接 commit 写入
-          ORIGIN_VER=$(cat module.prop | grep 'version=' | awk -F '=' '{print $2}')
+          ORIGIN_VER=$(grep 'version=' module.prop | cut -d'=' -f2)
           DATE_NUM=$(echo "$ORIGIN_VER" | tr -cd '0-9')
-          COMMIT_ID=$(git log --oneline -n 1 | awk '{print $1}')
+          COMMIT_ID=$(git rev-parse --short HEAD)
           NEW_VER="${ORIGIN_VER}(${COMMIT_ID})"
           
-          sed -i "s/^version=.*/version=$NEW_VER/" module.prop
           sed -i "s/^versionCode=.*/versionCode=$DATE_NUM/" module.prop
+          sed -i "s/^version=.*/version=$NEW_VER/" module.prop
           
-          zip -r -o -X -ll box_for_root-$(cat module.prop | grep 'version=' | awk -F '=' '{print $2}').zip ./ \
+          zip -r -o -X -ll box_for_root-${NEW_VER}.zip ./ \
             -x '.git/*' -x 'CHANGELOG.md' -x 'LICENSE' -x 'update.json' -x 'build.sh' -x '.github/*'
 
       - name: Upload to GitHub Pre-release
@@ -102,7 +94,6 @@ jobs:
             --notes "pre-release build from commit $(git log -1 --pretty=%h)"
 
       - name: Upload to Telegram (Debug Mode)
-        # 通过 [ci] 决定是否上传
         if: steps.check_ci.outputs.should_upload == 'true'
         env:
           CHAT_ID: ${{ secrets.CHAT_ID }}
@@ -111,27 +102,17 @@ jobs:
           API_HASH: ${{ secrets.API_HASH }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         run: |
-          # 从模块文件提取版本号
           export VERSION=$(grep 'version=' module.prop | awk -F '=' '{print $2}')
-          
-          # 设置版本类型
           export COMMIT="Pre-release"
-          
-          # 获取当前时间
           export DATE=$(TZ='Asia/Shanghai' date "+%Y-%m-%d %H:%M")
-          
-          # 获取最后一条 commit message 作为日志，并用双引号包裹防止换行导致崩溃
           export CHANGELOG="$(git log -1 --pretty=%B | head -n 1)"
           
-          # 查找生成的 zip 文件
           FILE=$(find . -name "*.zip" | head -n 1)
-          
           if [ -z "$FILE" ]; then
             echo "[-] Error: No zip file found!"
             exit 1
           fi
 
           echo "[+] Preparing to upload: $FILE (Version: $VERSION, Commit: $COMMIT)"
-          
           pip3 install --quiet telethon==1.31.1
           python3 .github/boxrootbot.py "$FILE"
