@@ -1453,6 +1453,9 @@ start_box() {
 
   busybox sleep 0.3
   box_bin_alive
+  # 新增: 清理 IPv4 和 IPv6 链的防火墙拦截规则...
+  pkill -f "${scripts_dir}/box.tool reject_clean" 2>/dev/null
+  "${scripts_dir}/box.tool" reject_clean &
 
   true
 }

@@ -1396,6 +1396,66 @@ bond1() {
   log Debug "rmnet_data* MTU: 9000"
 }
 
+reject_clean() {
+    # 等待一分钟，等待系统完整加载默认 iptables 规则
+    sleep 60    
+    log Info "开始清理 IPv4 和 IPv6 链的防火墙拦截规则..."
+ 
+    local chains="fw_INPUT fw_OUTPUT fw_OUTPUT_oplus_dns zte_fw_gms"
+    local chain proto table cmd line_numbers deleted_count line_num full_rule
+
+    for chain in $chains; do
+        for proto in ipv4 ipv6; do
+            table="filter"
+            cmd=""
+            case "$proto" in
+                ipv4) cmd="iptables" ;;
+                ipv6) cmd="ip6tables" ;;
+            esac
+
+            if ! command -v "$cmd" > /dev/null 2>&1; then
+                log Warning "跳过 $proto：$cmd 命令不存在"
+                continue
+            fi
+
+            line_numbers=$(
+                $cmd -t "$table" -nvL "$chain" --line-numbers 2> /dev/null \
+                    | awk '/REJECT|DROP/ {print $1}' \
+                    | sort -rn
+            )
+
+            if [ -z "$line_numbers" ]; then
+                log Debug "$proto: $chain 链未发现防火墙拦截规则"
+                continue
+            fi
+
+            deleted_count=0
+            for line_num in $line_numbers; do
+                full_rule=$(
+                    $cmd -t "$table" -nvL "$chain" --line-numbers 2> /dev/null \
+                        | awk -v ln="$line_num" '
+                        $1 == ln {
+                            sub(/^[ \t]*[0-9]+[ \t]+/, "");
+                            print
+                        }
+                    '
+                )
+
+                if $cmd -t "$table" -D "$chain" "$line_num" 2> /dev/null; then
+                    # log Debug "已删除 ($proto) $chain 第 ${line_num} 行: ${full_rule:-REJECT/DROP规则}"
+                    deleted_count=$((deleted_count + 1))
+                else
+                    log Error "删除失败 ($proto) $chain 第 ${line_num} 行"
+                fi
+            done
+
+            log Debug "$proto: $chain 链共删除 ${deleted_count} 条防火墙拦截规则"
+        done
+    done
+
+    log Info "IPv4 和 IPv6 链的防火墙拦截规则清理完成"
+}
+
 case "$1" in
   check)
     check
@@ -1467,9 +1527,13 @@ case "$1" in
       upxui
     done
     ;;
+  # 新增: 添加清理防火墙拦截规则函数
+  reject_clean)
+    reject_clean
+    ;;
   *)
     log Error "$0 $1 未找到"
-    log Info "用法: $0 {check|memcg|blkio|geosub|geox|subs|upkernel [name]|upkernels [name...]|upgeox_all|upxui|upyq|upcurl|upcnip|reload|webroot|bond0|bond1|all}"
+    log Info "用法: $0 {check|memcg|blkio|geosub|geox|subs|upkernel [name]|upkernels [name...]|upgeox_all|upxui|upyq|upcurl|upcnip|reload|webroot|bond0|bond1|reject_clean|all}"
     log Info "upkernel 支持的核心: sing-box, mihomo, mihomo_smart, xray, v2fly, hysteria"
     ;;
 esac
