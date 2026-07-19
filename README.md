@@ -11,7 +11,8 @@
 - [boxproxy](https://github.com/boxproxy/box)
 - [CHIZI-0618](https://github.com/CHIZI-0618/box4magisk)
 
-模块内 APK 开发者及获取渠道：
+APK 开发者及获取渠道：
+
 - [boxproxy](https://github.com/boxproxy/box)
 - [TG频道](https://telegram.me/zero_o0)
   
