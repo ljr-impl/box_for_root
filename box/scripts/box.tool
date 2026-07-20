@@ -1396,10 +1396,10 @@ bond1() {
   log Debug "rmnet_data* MTU: 9000"
 }
 
-reject_clean() {
+clean_firewall() {
     # 等待一分钟，等待系统完整加载默认 iptables 规则
     sleep 60    
-    log Info "开始清理 IPv4 和 IPv6 链的防火墙拦截规则..."
+    log Info "开始清理 IPv4 和 IPv6 链中防火墙拦截规则..."
  
     local chains="fw_INPUT fw_OUTPUT fw_OUTPUT_oplus_dns zte_fw_gms"
     local chain proto table cmd line_numbers deleted_count line_num full_rule
@@ -1425,7 +1425,7 @@ reject_clean() {
             )
 
             if [ -z "$line_numbers" ]; then
-                log Debug "$proto: $chain 链未发现防火墙拦截规则"
+                log Debug "$proto: $chain 中未发现防火墙拦截规则"
                 continue
             fi
 
@@ -1449,11 +1449,11 @@ reject_clean() {
                 fi
             done
 
-            log Debug "$proto: $chain 链共删除 ${deleted_count} 条防火墙拦截规则"
+            log Debug "$proto: $chain 中共删除 ${deleted_count} 条防火墙拦截规则"
         done
     done
 
-    log Info "IPv4 和 IPv6 链的防火墙拦截规则清理完成"
+    log Info "IPv4 和 IPv6 链中防火墙拦截规则清理完成"
 }
 
 case "$1" in
@@ -1528,12 +1528,12 @@ case "$1" in
     done
     ;;
   # 新增: 添加清理防火墙拦截规则函数
-  reject_clean)
-    reject_clean
+  clean_firewall)
+    clean_firewall
     ;;
   *)
     log Error "$0 $1 未找到"
-    log Info "用法: $0 {check|memcg|blkio|geosub|geox|subs|upkernel [name]|upkernels [name...]|upgeox_all|upxui|upyq|upcurl|upcnip|reload|webroot|bond0|bond1|reject_clean|all}"
+    log Info "用法: $0 {check|memcg|blkio|geosub|geox|subs|upkernel [name]|upkernels [name...]|upgeox_all|upxui|upyq|upcurl|upcnip|reload|webroot|bond0|bond1|clean_firewall|all}"
     log Info "upkernel 支持的核心: sing-box, mihomo, mihomo_smart, xray, v2fly, hysteria"
     ;;
 esac
