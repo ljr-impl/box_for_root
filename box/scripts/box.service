@@ -621,7 +621,7 @@ sing_delete_inbound() {
   local yq_bin="$1"
   local inbound_type="$2"
 
-  "${yq_bin}" "del(.inbounds[] | select(.type == \"${inbound_type}\"))" -i --output-format=json "${sing_work_config}"
+  "${yq_bin}" '(.inbounds[] | select(.type == "'"${inbound_type}"'")) = null | .inbounds |= del(.[] | select(. == null))' -i --output-format=json "${sing_work_config}"
 }
 
 sing_sync_inbound_port() {
