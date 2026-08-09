@@ -1527,7 +1527,6 @@ case "$1" in
       upxui
     done
     ;;
-  # 新增: 添加清理防火墙拦截规则函数
   clean_firewall)
     clean_firewall
     ;;
