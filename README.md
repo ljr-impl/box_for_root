@@ -11,7 +11,7 @@
 - [boxproxy](https://github.com/boxproxy/box)
 - [CHIZI-0618](https://github.com/CHIZI-0618/box4magisk)
 
-App 开发者及获取渠道：
+App 开发者及获取渠道(推荐使用 app 版 boxproxy)：
 
 - [boxproxy](https://github.com/boxproxy/box)
 - [TG频道](https://telegram.me/zero_o0)
