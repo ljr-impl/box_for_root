@@ -13,6 +13,7 @@ VERSION = os.environ.get("VERSION", "Unknown")
 COMMIT = os.environ.get("COMMIT", "n/a")
 DATE = os.environ.get("DATE", "")
 CHANGELOG = os.environ.get("CHANGELOG", "No changelog provided.")
+REPO_URL = os.environ.get("REPO_URL", "https://github.com/ljrgov/box_for_root")
 
 def check_environ():
     # 核心的 TG 连接参数为必填
@@ -45,14 +46,16 @@ def get_caption():
         version_display = version
         tags = "正式版"
 
+    repo_url = os.environ.get("REPO_URL", "https://github.com/ljrgov/box_for_root")
+
     # 构建最终消息（手动拼接，防止模板 format 报错）
     msg = (
         "**KernelSU/Magisk/Apatch模块**\n\n"
         f"**版本:** {version_display}\n"
         f"**日期:** {date}\n"
         f"{changelog}\n\n"
-        "[仓库地址](https://github.com/ljrgov/box_for_root)  |  "
-        "[发布详情](https://github.com/ljrgov/box_for_root/releases)  ｜  "
+        f"[仓库地址]({repo_url})  |  "
+        f"[发布详情]({repo_url}/releases)  ｜  "
         f"{tags}"
     ).strip()
 
