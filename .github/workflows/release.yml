@@ -45,8 +45,8 @@ jobs:
           {
             "version": "$VERSION",
             "versionCode": $DATE_NUM,
-            "zipUrl": "https://github.com/ljrgov/box_for_root/releases/download/${{ github.event.inputs.tag }}/box_for_root-$VERSION.zip",
-            "changelog": "https://raw.githubusercontent.com/ljrgov/box_for_root/refs/heads/master/CHANGELOG.md"
+            "zipUrl": "${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.event.inputs.tag }}/box_for_root-$VERSION.zip",
+            "changelog": "https://myraw.02570257.xyz/${{ github.repository }}/${{ github.event.inputs.branch }}/CHANGELOG.md"
           }
           EOF
 
@@ -92,14 +92,16 @@ jobs:
             #### Changelog ${{ github.event.inputs.tag }}
             ${{ github.event.inputs.changelog }} 
 
-      # 7. 上传到 Telegram
+      # 7. 上传到 Telegram（默认关闭，去仓库 Settings -> Secrets and variables -> Actions -> Variables 把 TG_UPLOAD_ENABLED 设为 true 即可开启）
       - name: Upload to Telegram
+        if: vars.TG_UPLOAD_ENABLED == 'true'
         env:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           MESSAGE_THREAD_ID: ${{ secrets.MESSAGE_THREAD_ID }}
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
           # 核心版本信息
           export VERSION="${{ github.event.inputs.tag }}"
