@@ -4,4 +4,4 @@ version=v1.2.9
 versionCode=129
 author=taamarin, boxproxy, ljrgov
 description=安卓(root)设备上使用sing-box、mihomo、v2ray、hysteria、xray进行透明代理
-updateJson=https://raw.githubusercontent.com/ljrgov/box_for_root/refs/heads/master/update.json
+updateJson=https://myraw.02570257.xyz/box_for_root/main/update.json?token=box_for_root
