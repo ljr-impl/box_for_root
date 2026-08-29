@@ -82,15 +82,16 @@ jobs:
             --title "Pre-release ${VERSION}" \
             --notes "pre-release build from commit $(git log -1 --pretty=%h)"
 
+      # 上传到 Telegram（默认关闭，去仓库 Settings -> Secrets and variables -> Actions -> Variables 把 TG_UPLOAD_ENABLED 设为 true 即可开启）
       - name: Upload to Telegram (Debug Mode)
-        # 通过 [ci] 决定是否上传
-        if: steps.check_ci.outputs.should_upload == 'true'
+        if: steps.check_ci.outputs.should_upload == 'true' && vars.TG_UPLOAD_ENABLED == 'true'
         env:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           MESSAGE_THREAD_ID: ${{ secrets.MESSAGE_THREAD_ID }}
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
           # 从模块文件提取版本号
           export VERSION=$(grep 'version=' module.prop | awk -F '=' '{print $2}')
@@ -116,3 +117,4 @@ jobs:
           
           pip3 install --quiet telethon==1.31.1
           python3 .github/boxrootbot.py "$FILE"
+
