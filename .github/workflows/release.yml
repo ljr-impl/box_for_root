@@ -46,7 +46,7 @@ jobs:
             "version": "$VERSION",
             "versionCode": $DATE_NUM,
             "zipUrl": "${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.event.inputs.tag }}/box_for_root-$VERSION.zip",
-            "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/refs/heads/${{ github.event.inputs.branch }}/CHANGELOG.md"
+            "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.inputs.branch }}/CHANGELOG.md"
           }
           EOF
 
