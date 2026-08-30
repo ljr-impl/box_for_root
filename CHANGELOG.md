@@ -1,4 +1,7 @@
 #### Changelog v1.2.9 - 2026/08/30
+- fix and improved
+
+#### Changelog v1.2.9 - 2026/08/30
 - 修复和提升
 
 #### Changelog v1.2.9 - 2026/08/17
