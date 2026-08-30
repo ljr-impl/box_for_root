@@ -2,6 +2,6 @@ id=box_for_root
 name=Box for Magisk/KernelSU/APatch
 version=v1.2.9
 versionCode=129
-author=taamarin, boxproxy, ljrgov
+author=taamarin, boxproxy, ljr-impl
 description=安卓(root)设备上使用sing-box、mihomo、v2ray、hysteria、xray进行透明代理
-updateJson=https://myraw.02570257.xyz/box_for_root/main/update.json?token=box_for_root
+updateJson=https://raw.githubusercontent.com/ljr-impl/box_for_root/main/update.json
